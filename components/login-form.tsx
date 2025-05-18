@@ -59,7 +59,6 @@ export function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="apple-input"
             />
           </div>
           <div className="space-y-2">
@@ -71,10 +70,9 @@ export function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="apple-input"
             />
           </div>
-          <Button type="submit" className="w-full apple-button" disabled={isLoading}>
+          <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Signing in..." : "Sign in"}
           </Button>
         </form>

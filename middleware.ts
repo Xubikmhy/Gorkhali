@@ -1,29 +1,10 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
+// This is a simplified middleware that doesn't rely on server-side auth
 export function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname
-
-  // Define public paths that don't require authentication
-  const isPublicPath = path === "/" || path.startsWith("/api/")
-
-  // Get the session token from cookies
-  const token = request.cookies.get("session")?.value
-
-  // Redirect logic
-  if (!isPublicPath && !token) {
-    // Redirect to login if trying to access protected route without token
-    return NextResponse.redirect(new URL("/", request.url))
-  }
-
-  if (path === "/" && token) {
-    // If already logged in and trying to access login page,
-    // redirect to appropriate dashboard based on role
-    // For simplicity, we'll redirect to admin dashboard
-    // In a real app, you'd decode the token to get the role
-    return NextResponse.redirect(new URL("/admin/dashboard", request.url))
-  }
-
+  // For the demo, we'll just let all requests through
+  // In a real app, you'd check for authentication here
   return NextResponse.next()
 }
 

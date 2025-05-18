@@ -95,8 +95,8 @@ export function AppSidebar() {
 
   const menuItems = isAdmin ? adminMenuItems : employeeMenuItems
 
-  const handleSignOut = async () => {
-    await signOut()
+  const handleSignOut = () => {
+    signOut()
   }
 
   return (

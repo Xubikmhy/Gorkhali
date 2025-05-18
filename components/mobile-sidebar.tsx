@@ -99,8 +99,8 @@ export function MobileSidebar() {
 
   const menuItems = isAdmin ? adminMenuItems : employeeMenuItems
 
-  const handleSignOut = async () => {
-    await signOut()
+  const handleSignOut = () => {
+    signOut()
   }
 
   const handleNavigation = (href: string) => {

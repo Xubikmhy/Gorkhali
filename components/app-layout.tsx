@@ -1,15 +1,12 @@
 "use client"
 
-import type { ReactNode } from "react"
+import type React from "react"
+
 import { useEffect, useState } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { MobileSidebar } from "@/components/mobile-sidebar"
 
-interface AppLayoutProps {
-  children: ReactNode
-}
-
-export function AppLayout({ children }: AppLayoutProps) {
+export function AppLayout({ children }: { children: React.ReactNode }) {
   const [isMounted, setIsMounted] = useState(false)
 
   useEffect(() => {

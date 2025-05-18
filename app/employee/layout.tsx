@@ -1,10 +1,10 @@
 import type React from "react"
-import { AppLayout } from "@/components/app-layout"
+import { ElegantLayout } from "@/components/elegant-layout"
 
 export default function EmployeeLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return <AppLayout>{children}</AppLayout>
+  return <ElegantLayout>{children}</ElegantLayout>
 }

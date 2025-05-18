@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { createContext, useContext, useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 
@@ -28,13 +29,6 @@ const MOCK_USERS = [
     role: "employee" as const,
     department: "Design",
   },
-  {
-    id: "emp-2",
-    displayName: "Sarah Smith",
-    email: "sarah@example.com",
-    role: "employee" as const,
-    department: "Printing",
-  },
 ]
 
 // Auth context type
@@ -42,11 +36,11 @@ type AuthContextType = {
   user: User | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ success: boolean; message?: string }>
-  signOut: () => Promise<void>
+  signOut: () => void
 }
 
 // Create auth context
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextType | null>(null)
 
 // Auth provider component
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -56,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Check for existing session on mount
   useEffect(() => {
-    const checkSession = async () => {
+    const checkSession = () => {
       try {
         // Check local storage for user session
         const storedUser = localStorage.getItem("user")
@@ -70,14 +64,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    checkSession()
+    // Only run in browser environment
+    if (typeof window !== "undefined") {
+      checkSession()
+    } else {
+      setLoading(false)
+    }
   }, [])
 
   // Sign in function
   const signIn = async (email: string, password: string) => {
     try {
       // Simple mock authentication
-      // In a real app, this would call your API
       const user = MOCK_USERS.find((u) => u.email === email)
 
       if (!user) {
@@ -85,7 +83,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Simple password check (in a real app, you'd use proper auth)
-      // For demo: admin@example.com / admin123 or john@example.com / john123
       const isValidPassword = password === (user.role === "admin" ? "admin123" : "john123")
 
       if (!isValidPassword) {
@@ -94,7 +91,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Set user in state and localStorage
       setUser(user)
-      localStorage.setItem("user", JSON.stringify(user))
+      if (typeof window !== "undefined") {
+        localStorage.setItem("user", JSON.stringify(user))
+      }
 
       // Redirect based on role
       if (user.role === "admin") {
@@ -111,9 +110,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Sign out function
-  const signOut = async () => {
+  const signOut = () => {
     setUser(null)
-    localStorage.removeItem("user")
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("user")
+    }
     router.push("/")
   }
 
@@ -123,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 // Hook to use auth context
 export function useAuth() {
   const context = useContext(AuthContext)
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useAuth must be used within an AuthProvider")
   }
   return context
