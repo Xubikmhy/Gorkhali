@@ -1,4 +1,4 @@
-import { compare, hash } from "bcrypt"
+import { compare, hash } from "bcryptjs"
 import { query } from "./db"
 
 export async function signIn(username: string, password: string) {

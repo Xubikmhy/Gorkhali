@@ -1,38 +1,10 @@
 "use server"
 
+import { hash } from "bcryptjs" // Changed from bcrypt to bcryptjs
+import { query } from "@/lib/db"
 import { revalidatePath } from "next/cache"
-import {
-  getEmployees,
-  getEmployeeById,
-  createEmployee,
-  updateEmployee,
-  deleteEmployee,
-  type Employee,
-} from "@/lib/db/employees"
 
-export async function fetchEmployees() {
-  try {
-    return { success: true, data: await getEmployees() }
-  } catch (error) {
-    console.error("Error fetching employees:", error)
-    return { success: false, error: "Failed to fetch employees" }
-  }
-}
-
-export async function fetchEmployeeById(id: number) {
-  try {
-    const employee = await getEmployeeById(id)
-    if (!employee) {
-      return { success: false, error: "Employee not found" }
-    }
-    return { success: true, data: employee }
-  } catch (error) {
-    console.error("Error fetching employee:", error)
-    return { success: false, error: "Failed to fetch employee" }
-  }
-}
-
-export async function addEmployee(formData: FormData) {
+export async function createEmployee(formData: FormData) {
   try {
     const firstName = formData.get("firstName") as string
     const departmentId = Number.parseInt(formData.get("departmentId") as string)
@@ -41,95 +13,140 @@ export async function addEmployee(formData: FormData) {
     const salaryType = formData.get("salaryType") as string
     const rate = Number.parseFloat(formData.get("rate") as string)
 
-    if (!firstName || !departmentId || !employmentType || !salaryType || !rate) {
-      return { success: false, error: "Missing required fields" }
-    }
+    // Start a transaction
+    await query("BEGIN")
 
-    const employee = await createEmployee({
-      first_name: firstName,
-      department_id: departmentId,
-      phone,
-      employment_type: employmentType,
-      salary_type: salaryType,
-      rate,
-      status: "Active",
-    })
+    // Create employee record
+    const employeeResult = await query(
+      `INSERT INTO employees 
+       (first_name, department_id, phone, employment_type, salary_type, rate, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, 'Active') 
+       RETURNING id`,
+      [firstName, departmentId, phone, employmentType, salaryType, rate],
+    )
+
+    const employeeId = employeeResult.rows[0].id
+
+    // Create user record
+    const username = firstName.toLowerCase()
+    const password = `${firstName}@123`
+    const hashedPassword = await hash(password, 10)
+
+    await query(
+      `INSERT INTO users 
+       (username, password, role) 
+       VALUES ($1, $2, 'employee')`,
+      [username, hashedPassword],
+    )
+
+    // Commit transaction
+    await query("COMMIT")
 
     revalidatePath("/admin/employees")
-    return { success: true, data: employee }
+    return { success: true, message: "Employee created successfully" }
   } catch (error) {
-    console.error("Error creating employee:", error)
-    return { success: false, error: "Failed to create employee" }
+    // Rollback transaction on error
+    await query("ROLLBACK")
+    console.error("Create employee error:", error)
+    return { success: false, message: "Failed to create employee" }
   }
 }
 
-export async function editEmployee(id: number, formData: FormData) {
+export async function updateEmployee(formData: FormData) {
   try {
-    const updates: Partial<Employee> = {}
+    const id = Number.parseInt(formData.get("id") as string)
+    const firstName = formData.get("firstName") as string
+    const departmentId = Number.parseInt(formData.get("departmentId") as string)
+    const phone = formData.get("phone") as string
+    const employmentType = formData.get("employmentType") as string
+    const salaryType = formData.get("salaryType") as string
+    const rate = Number.parseFloat(formData.get("rate") as string)
+    const status = formData.get("status") as string
 
-    const firstName = formData.get("firstName")
-    if (firstName) updates.first_name = firstName as string
-
-    const departmentId = formData.get("departmentId")
-    if (departmentId) updates.department_id = Number.parseInt(departmentId as string)
-
-    const phone = formData.get("phone")
-    if (phone) updates.phone = phone as string
-
-    const employmentType = formData.get("employmentType")
-    if (employmentType) updates.employment_type = employmentType as string
-
-    const salaryType = formData.get("salaryType")
-    if (salaryType) updates.salary_type = salaryType as string
-
-    const rate = formData.get("rate")
-    if (rate) updates.rate = Number.parseFloat(rate as string)
-
-    const status = formData.get("status")
-    if (status) updates.status = status as string
-
-    const employee = await updateEmployee(id, updates)
-
-    if (!employee) {
-      return { success: false, error: "Employee not found" }
-    }
+    await query(
+      `UPDATE employees 
+       SET first_name = $1, department_id = $2, phone = $3, 
+           employment_type = $4, salary_type = $5, rate = $6, status = $7
+       WHERE id = $8`,
+      [firstName, departmentId, phone, employmentType, salaryType, rate, status, id],
+    )
 
     revalidatePath("/admin/employees")
-    return { success: true, data: employee }
+    return { success: true, message: "Employee updated successfully" }
   } catch (error) {
-    console.error("Error updating employee:", error)
-    return { success: false, error: "Failed to update employee" }
+    console.error("Update employee error:", error)
+    return { success: false, message: "Failed to update employee" }
   }
 }
 
-export async function updateEmployeeStatus(id: number, status: string) {
+export async function deleteEmployee(id: number) {
   try {
-    const employee = await updateEmployee(id, { status })
-
-    if (!employee) {
-      return { success: false, error: "Employee not found" }
+    // Check if employee has any tasks
+    const tasksResult = await query("SELECT COUNT(*) FROM tasks WHERE employee_id = $1", [id])
+    if (Number.parseInt(tasksResult.rows[0].count) > 0) {
+      return { success: false, message: "Cannot delete employee with assigned tasks" }
     }
 
+    // Check if employee has attendance records
+    const attendanceResult = await query("SELECT COUNT(*) FROM attendance WHERE employee_id = $1", [id])
+    if (Number.parseInt(attendanceResult.rows[0].count) > 0) {
+      return { success: false, message: "Cannot delete employee with attendance records" }
+    }
+
+    // Get employee username
+    const employeeResult = await query("SELECT first_name FROM employees WHERE id = $1", [id])
+    const username = employeeResult.rows[0].first_name.toLowerCase()
+
+    // Start transaction
+    await query("BEGIN")
+
+    // Delete user record
+    await query("DELETE FROM users WHERE username = $1", [username])
+
+    // Delete employee record
+    await query("DELETE FROM employees WHERE id = $1", [id])
+
+    // Commit transaction
+    await query("COMMIT")
+
     revalidatePath("/admin/employees")
-    return { success: true, data: employee }
+    return { success: true, message: "Employee deleted successfully" }
   } catch (error) {
-    console.error("Error updating employee status:", error)
-    return { success: false, error: "Failed to update employee status" }
+    // Rollback transaction on error
+    await query("ROLLBACK")
+    console.error("Delete employee error:", error)
+    return { success: false, message: "Failed to delete employee" }
   }
 }
 
-export async function removeEmployee(id: number) {
+export async function getEmployees() {
   try {
-    const result = await deleteEmployee(id)
-
-    if (!result) {
-      return { success: false, error: "Employee not found" }
-    }
-
-    revalidatePath("/admin/employees")
-    return { success: true }
+    const result = await query(
+      `SELECT e.id, e.first_name, e.phone, e.employment_type, 
+              e.salary_type, e.rate, e.status, d.name as department
+       FROM employees e
+       JOIN departments d ON e.department_id = d.id
+       ORDER BY e.first_name`,
+    )
+    return result.rows
   } catch (error) {
-    console.error("Error deleting employee:", error)
-    return { success: false, error: "Failed to delete employee" }
+    console.error("Get employees error:", error)
+    return []
+  }
+}
+
+export async function getEmployee(id: number) {
+  try {
+    const result = await query(
+      `SELECT e.id, e.first_name, e.department_id, e.phone, 
+              e.employment_type, e.salary_type, e.rate, e.status
+       FROM employees e
+       WHERE e.id = $1`,
+      [id],
+    )
+    return result.rows[0]
+  } catch (error) {
+    console.error("Get employee error:", error)
+    return null
   }
 }

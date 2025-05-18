@@ -1,23 +1,68 @@
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
-// This is a simplified middleware that doesn't rely on server-side auth
 export function middleware(request: NextRequest) {
-  // For the demo, we'll just let all requests through
-  // In a real app, you'd check for authentication here
+  const path = request.nextUrl.pathname
+  const isPublicPath = path === "/" || path === "/login"
+
+  // Get the auth cookie
+  const authCookie = request.cookies.get("auth")?.value
+
+  // If the user is not authenticated and trying to access a protected route
+  if (!authCookie && !isPublicPath) {
+    return NextResponse.redirect(new URL("/", request.url))
+  }
+
+  // If the user is authenticated and trying to access a public route
+  if (authCookie && isPublicPath) {
+    try {
+      const user = JSON.parse(authCookie)
+      if (user.role === "admin") {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url))
+      } else if (user.role === "employee") {
+        return NextResponse.redirect(new URL("/employee/dashboard", request.url))
+      }
+    } catch (error) {
+      // If there's an error parsing the cookie, clear it and redirect to login
+      const response = NextResponse.redirect(new URL("/", request.url))
+      response.cookies.delete("auth")
+      return response
+    }
+  }
+
+  // Check role-specific paths
+  if (authCookie) {
+    try {
+      const user = JSON.parse(authCookie)
+
+      // Admin trying to access employee routes
+      if (user.role === "admin" && path.startsWith("/employee")) {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url))
+      }
+
+      // Employee trying to access admin routes
+      if (user.role === "employee" && path.startsWith("/admin")) {
+        return NextResponse.redirect(new URL("/employee/dashboard", request.url))
+      }
+    } catch (error) {
+      // If there's an error parsing the cookie, clear it and redirect to login
+      const response = NextResponse.redirect(new URL("/", request.url))
+      response.cookies.delete("auth")
+      return response
+    }
+  }
+
   return NextResponse.next()
 }
 
-// Configure the middleware to run on specific paths
 export const config = {
   matcher: [
     /*
-     * Match all request paths except:
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public files (public assets)
      */
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 }

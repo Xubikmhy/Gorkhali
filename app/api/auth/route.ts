@@ -1,84 +1,159 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { signIn } from "@/lib/auth"
-import { cookies } from "next/headers"
+import { compare } from "bcryptjs" // Changed from bcrypt to bcryptjs
+import { query } from "@/lib/db"
 import { serialize } from "cookie"
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { username, password } = body
+    const { username, password } = await request.json()
 
-    if (!username || !password) {
-      return NextResponse.json({ error: "Username and password are required" }, { status: 400 })
+    // For demo mode without proper database setup
+    if (process.env.NODE_ENV === "development" || process.env.VERCEL_ENV === "preview") {
+      // Check demo credentials
+      if (username === "admin" && password === "admin123") {
+        const user = {
+          id: 1,
+          username: "admin",
+          role: "admin",
+          displayName: "Admin",
+        }
+
+        // Set cookie
+        const cookieValue = serialize("auth", JSON.stringify(user), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV !== "development",
+          sameSite: "strict",
+          maxAge: 3600, // 1 hour
+          path: "/",
+        })
+
+        return NextResponse.json(
+          { success: true, user },
+          {
+            headers: {
+              "Set-Cookie": cookieValue,
+            },
+          },
+        )
+      } else if (["john", "sarah", "mike"].includes(username) && password === `${username}@123`) {
+        const employeeId = username === "john" ? 1 : username === "sarah" ? 2 : 3
+        const department = username === "john" ? "Printing" : username === "sarah" ? "Design" : "Binding"
+
+        const user = {
+          id: employeeId + 1, // User ID is different from employee ID
+          username,
+          role: "employee",
+          employeeId,
+          displayName: username.charAt(0).toUpperCase() + username.slice(1),
+          department,
+          status: "Active",
+        }
+
+        // Set cookie
+        const cookieValue = serialize("auth", JSON.stringify(user), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV !== "development",
+          sameSite: "strict",
+          maxAge: 3600, // 1 hour
+          path: "/",
+        })
+
+        return NextResponse.json(
+          { success: true, user },
+          {
+            headers: {
+              "Set-Cookie": cookieValue,
+            },
+          },
+        )
+      }
+
+      return NextResponse.json({ success: false, error: "Invalid credentials" }, { status: 401 })
     }
 
-    const user = await signIn(username, password)
+    // Get user from database
+    const result = await query("SELECT id, username, password, role FROM users WHERE username = $1", [
+      username.toLowerCase(),
+    ])
 
-    // Create a session cookie
-    const sessionCookie = serialize("session", JSON.stringify(user), {
+    const user = result.rows[0]
+
+    if (!user) {
+      return NextResponse.json({ success: false, error: "User not found" }, { status: 401 })
+    }
+
+    // Compare password
+    const passwordMatch = await compare(password, user.password)
+
+    if (!passwordMatch) {
+      return NextResponse.json({ success: false, error: "Invalid password" }, { status: 401 })
+    }
+
+    // If user is an employee, get employee details
+    let employeeDetails = null
+    if (user.role === "employee") {
+      const employeeResult = await query(
+        `SELECT e.id, e.first_name, e.status, d.name as department
+         FROM employees e
+         JOIN departments d ON e.department_id = d.id
+         WHERE e.first_name = $1`,
+        [username],
+      )
+
+      if (employeeResult.rows.length > 0) {
+        employeeDetails = employeeResult.rows[0]
+      }
+    }
+
+    const userData = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      employeeId: employeeDetails?.id || null,
+      displayName: employeeDetails?.first_name || user.username,
+      department: employeeDetails?.department || null,
+      status: employeeDetails?.status || null,
+    }
+
+    // Set cookie
+    const cookieValue = serialize("auth", JSON.stringify(userData), {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV !== "development",
       sameSite: "strict",
-      maxAge: 60 * 60 * 24, // 1 day
+      maxAge: 3600, // 1 hour
       path: "/",
     })
 
-    // Return the user data
     return NextResponse.json(
-      { user },
+      { success: true, user: userData },
       {
-        status: 200,
-        headers: { "Set-Cookie": sessionCookie },
+        headers: {
+          "Set-Cookie": cookieValue,
+        },
       },
     )
   } catch (error) {
-    console.error("Authentication error:", error)
-    return NextResponse.json({ error: "Invalid username or password" }, { status: 401 })
-  }
-}
-
-export async function GET() {
-  try {
-    const cookieStore = cookies()
-    const sessionCookie = cookieStore.get("session")
-
-    if (!sessionCookie) {
-      return NextResponse.json({ user: null }, { status: 200 })
-    }
-
-    try {
-      const user = JSON.parse(sessionCookie.value)
-      return NextResponse.json({ user }, { status: 200 })
-    } catch (error) {
-      console.error("Error parsing session cookie:", error)
-      return NextResponse.json({ user: null }, { status: 200 })
-    }
-  } catch (error) {
-    console.error("Error in GET /api/auth:", error)
-    return NextResponse.json({ user: null, error: "Authentication error" }, { status: 200 })
+    console.error("API auth error:", error)
+    return NextResponse.json({ success: false, error: "Authentication failed" }, { status: 500 })
   }
 }
 
 export async function DELETE() {
-  try {
-    // Clear the session cookie
-    const sessionCookie = serialize("session", "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 0,
-      path: "/",
-    })
+  // Clear the auth cookie
+  const cookieValue = serialize("auth", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV !== "development",
+    sameSite: "strict",
+    maxAge: 0, // Expire immediately
+    path: "/",
+  })
 
-    return NextResponse.json(
-      { success: true },
-      {
-        status: 200,
-        headers: { "Set-Cookie": sessionCookie },
+  return NextResponse.json(
+    { success: true },
+    {
+      headers: {
+        "Set-Cookie": cookieValue,
       },
-    )
-  } catch (error) {
-    console.error("Error in DELETE /api/auth:", error)
-    return NextResponse.json({ error: "Logout failed" }, { status: 500 })
-  }
+    },
+  )
 }
